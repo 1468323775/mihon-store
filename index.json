@@ -1,0 +1,35 @@
+{
+  "name": "琳的扩展仓库",
+  "badgeLabel": "琳",
+  "signingKey": "e93c713252287646464de377f1e6b65803724e8d0991aa19c12fe45c72e02697",
+  "contact": {
+    "website": "https://github.com/1468323775/mihon-store",
+    "discord": null
+  },
+  "extensionList": {
+    "extensions": [
+      {
+        "name": "Doge Manga",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.dogemanga",
+        "resources": {
+          "apkUrl": "https://raw.githubusercontent.com/1468323775/mihon-store/main/apk/tachiyomi-zh.dogemanga-v1.6.2.apk",
+          "iconUrl": "https://raw.githubusercontent.com/1468323775/mihon-store/main/icon/eu.kanade.tachiyomi.extension.zh.dogemanga.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106002,
+        "versionName": "1.6.2",
+        "contentWarning": "MIXED",
+        "sources": [
+          {
+            "id": 5204539549918984432,
+            "name": "漫画狗",
+            "language": "zh",
+            "homeUrl": "https://dogemanga.com",
+            "mirrorUrls": []
+          }
+        ]
+      }
+    ]
+  },
+  "extensionListUrl": null
+}
