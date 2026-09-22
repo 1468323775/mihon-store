@@ -1,0 +1,25 @@
+{
+  "_comment": "每个模块在 release(R8) 包里必须还能找到的关键串。脚本会额外自动加上 source-info 里的源名与 baseUrl。加新模块时在这里补一条。",
+  "src/zh/dogemanga": [
+    "漫画狗",
+    "https://dogemanga.com",
+    "/_search",
+    "manga_cards",
+    "a.site-manga-thumbnail__link",
+    "img.site-reader__image",
+    "data-page-image-url",
+    "連載中",
+    "kotlinx/serialization/json/Json"
+  ],
+  "src/zh/copymanga": [
+    "拷贝漫画",
+    "https://www.mangacopy.com",
+    "api.mangacopy.com",
+    "api.2026copy.com",
+    "search/comic",
+    "comic2/",
+    "/chapter/",
+    "COPY/3.2.4",
+    "kotlinx/serialization/json/Json"
+  ]
+}

@@ -1,50 +1,36 @@
 #!/usr/bin/env python3
-"""从 assembleRelease 产物生成 Mihon 扩展商店文件（index.json + apk/ + icon/）。
+"""从多个扩展模块的构建产物生成 Mihon 商店文件（index.json + apk/ + icon/）。
 
-Mihon 的「新式商店」格式：单文件 JSON，字段名与 data/extension/model/NetworkExtensionStore.kt 一一对应。
-apkUrl / iconUrl 必须是绝对 URL（商店基础地址 + 相对路径）。
+产物目录结构（CI 里 download-artifact 下来的样子，每个模块一个子目录）：
+
+    artifacts/
+      ext-src-zh-dogemanga/
+        keiyoushi-source-info.json
+        tachiyomi-zh.dogemanga-v1.6.2.apk
+        ic_launcher.png
+      ext-src-zh-copymanga/
+        ...
+
+字段结构对齐 Mihon 源码 data/.../extension/model/NetworkExtensionStore.kt。
 
 用法:
-    python tools/build_store.py --info <keiyoushi-source-info.json> --apk <x.apk> \
-        --icon <ic_launcher.png> --out <商店目录> --base-url <商店URL> \
+    python tools/build_store.py --artifacts <目录> --out <输出目录> --base-url <商店URL> \\
         --name <商店名> --badge <徽标> --website <站点> --signing-key <证书指纹>
 """
 import argparse, hashlib, json, shutil, sys
 from pathlib import Path
 
-
-def load_info(info_path: Path) -> dict:
-    info = json.loads(info_path.read_text(encoding="utf-8"))
-    print("[info] 原始 keiyoushi-source-info.json:")
-    print(json.dumps(info, ensure_ascii=False, indent=2))
-    return info
+CONTENT_WARNING_NAMES = {0: "UNSPECIFIED", 1: "SAFE", 2: "MIXED", 3: "NSFW"}
 
 
-def pick(info: dict, *keys, default=None):
+def pick(info, *keys, default=None):
     for k in keys:
         if k in info and info[k] is not None:
             return info[k]
     return default
 
 
-def need(info: dict, *keys, what=""):
-    value = pick(info, *keys)
-    if value is None:
-        sys.exit(f"source-info 缺少必需字段 {what or keys[0]}：可用字段 {sorted(info)}")
-    return value
-
-
-# keiyoushi-source-info.json 里 contentWarning 是数字（proto 枚举），
-# 而 Mihon 的 JSON 解码要的是枚举序列化名。
-CONTENT_WARNING_NAMES = {
-    0: "UNSPECIFIED",
-    1: "SAFE",
-    2: "MIXED",
-    3: "NSFW",
-}
-
-
-def normalize_content_warning(raw) -> str:
+def normalize_content_warning(raw):
     if isinstance(raw, bool):
         return "SAFE"
     if isinstance(raw, (int, float)):
@@ -55,23 +41,25 @@ def normalize_content_warning(raw) -> str:
     return name if name in set(CONTENT_WARNING_NAMES.values()) else "SAFE"
 
 
-def build(args) -> dict:
-    out = Path(args.out)
-    (out / "apk").mkdir(parents=True, exist_ok=True)
-    (out / "icon").mkdir(parents=True, exist_ok=True)
-
-    info = load_info(Path(args.info))
+def build_extension(info_path: Path, artifact_dir: Path, out: Path, base: str) -> dict:
+    info = json.loads(info_path.read_text(encoding="utf-8"))
     pkg = pick(info, "packageName", "package_name")
     if not pkg:
-        sys.exit("source-info 里没有 packageName，无法生成商店索引")
+        sys.exit(f"{info_path} 里没有 packageName")
 
-    apk_src = Path(args.apk)
-    apk_dst = out / "apk" / apk_src.name
-    shutil.copy2(apk_src, apk_dst)
-    apk_sha256 = hashlib.sha256(apk_dst.read_bytes()).hexdigest()
+    apk = next(iter(sorted(artifact_dir.glob("*.apk"))), None)
+    icon = next(iter(sorted(artifact_dir.glob("*.png"))), None)
+    if apk is None:
+        sys.exit(f"{artifact_dir} 里没有 APK")
+    if icon is None:
+        sys.exit(f"{artifact_dir} 里没有图标")
 
-    icon_dst = out / "icon" / f"{pkg}.png"
-    shutil.copy2(args.icon, icon_dst)
+    (out / "apk").mkdir(parents=True, exist_ok=True)
+    (out / "icon").mkdir(parents=True, exist_ok=True)
+    shutil.copy2(apk, out / "apk" / apk.name)
+    icon_name = f"{pkg}.png"
+    shutil.copy2(icon, out / "icon" / icon_name)
+    apk_sha256 = hashlib.sha256((out / "apk" / apk.name).read_bytes()).hexdigest()
 
     sources = []
     for s in pick(info, "sources", default=[]) or []:
@@ -86,56 +74,59 @@ def build(args) -> dict:
         sources = [{"id": 0, "name": pick(info, "name", default=pkg), "language": "zh",
                     "homeUrl": "", "mirrorUrls": []}]
 
-    content_warning = normalize_content_warning(pick(info, "contentWarning", default="SAFE"))
-
-    base = args.base_url.rstrip("/")
     extension = {
         "name": pick(info, "name", default=pkg),
         "packageName": pkg,
         "resources": {
-            "apkUrl": f"{base}/apk/{apk_dst.name}",
-            "iconUrl": f"{base}/icon/{icon_dst.name}",
+            "apkUrl": f"{base}/apk/{apk.name}",
+            "iconUrl": f"{base}/icon/{icon_name}",
         },
         "extensionLib": str(pick(info, "extensionLib", default="1.6")),
-        "versionCode": int(need(info, "versionCode", what="versionCode")),
-        "versionName": str(need(info, "versionName", what="versionName")),
-        "contentWarning": content_warning,
+        "versionCode": int(pick(info, "versionCode", default=1)),
+        "versionName": str(pick(info, "versionName", default="1.0")),
+        "contentWarning": normalize_content_warning(pick(info, "contentWarning", default="SAFE")),
         "sources": sources,
     }
-
-    index = {
-        "name": args.name,
-        "badgeLabel": args.badge,
-        "signingKey": args.signing_key,
-        "contact": {"website": args.website, "discord": None},
-        "extensionList": {"extensions": [extension]},
-        "extensionListUrl": None,
-    }
-    (out / "index.json").write_text(
-        json.dumps(index, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
-
-    print("\n[store] index.json:")
-    print(json.dumps(index, ensure_ascii=False, indent=2))
-    print(f"\n[store] apk  -> {apk_dst.name}  sha256={apk_sha256}")
-    print(f"[store] icon -> {icon_dst.name}")
-    print(f"[store] versionCode={extension['versionCode']} versionName={extension['versionName']}"
-          f" contentWarning={content_warning} extensionLib={extension['extensionLib']}")
-    return index
+    print(f"[store] {extension['name']:12} {pkg:48} {extension['versionName']:7} "
+          f"({extension['versionCode']}) 源={[s['name'] for s in sources]} "
+          f"apk={apk.name} sha256={apk_sha256[:16]}…")
+    return extension
 
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--info", required=True)
-    p.add_argument("--apk", required=True)
-    p.add_argument("--icon", required=True)
+    p.add_argument("--artifacts", required=True, help="各模块产物目录（含子目录）")
     p.add_argument("--out", required=True)
     p.add_argument("--base-url", required=True)
     p.add_argument("--name", required=True)
     p.add_argument("--badge", required=True)
     p.add_argument("--website", required=True)
     p.add_argument("--signing-key", required=True)
-    build(p.parse_args())
+    args = p.parse_args()
+
+    artifacts = Path(args.artifacts)
+    infos = sorted(artifacts.glob("**/keiyoushi-source-info.json"))
+    if not infos:
+        sys.exit(f"{artifacts} 下没找到任何 keiyoushi-source-info.json")
+
+    out = Path(args.out)
+    base = args.base_url.rstrip("/")
+    extensions = [build_extension(i, i.parent, out, base) for i in infos]
+    extensions.sort(key=lambda e: e["packageName"])
+
+    index = {
+        "name": args.name,
+        "badgeLabel": args.badge,
+        "signingKey": args.signing_key,
+        "contact": {"website": args.website, "discord": None},
+        "extensionList": {"extensions": extensions},
+        "extensionListUrl": None,
+    }
+    (out / "index.json").write_text(json.dumps(index, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    print(f"\n[store] 共 {len(extensions)} 个扩展：")
+    for e in extensions:
+        print(f"    {e['name']:14} {e['versionName']:8} {e['contentWarning']:6} {e['resources']['apkUrl']}")
 
 
 if __name__ == "__main__":
