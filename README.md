@@ -54,3 +54,6 @@ https://raw.githubusercontent.com/1468323775/mihon-store/main/index.json
 - 手装的旧包跟商店包签名不同，**先卸载旧包**再装商店版，否则报「应用未安装」
 
 不想用商店也行：`apk/` 目录里就是要的 APK，直接下载 sideload，装完 Mihon 会提示 `Untrusted extension`，点一次 Trust。
+
+## 鸣谢
+- 接口服务由 [VSLLM](https://vsllm.com) 提供支持
