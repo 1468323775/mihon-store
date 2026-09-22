@@ -111,6 +111,34 @@ jobs:
           fi
           echo "✅ 签名指纹与商店 signingKey 一致"
 
+      - name: Verify source payload survived R8 shrinking
+        run: |
+          APK=$(find "upstream/$MODULE_DIR/build/outputs/apk/release" -name '*.apk' | head -1)
+          python3 - "$APK" <<'PY'
+          import sys, zipfile
+          z = zipfile.ZipFile(sys.argv[1])
+          blob = b"".join(z.read(n) for n in z.namelist() if n.endswith(".dex"))
+          markers = {
+              "源名 漫画狗": "漫画狗".encode(),
+              "站点 baseUrl": b"https://dogemanga.com",
+              "翻页接口 /_search": b"/_search",
+              "JSON 字段 manga_cards": b"manga_cards",
+              "kotlinx.serialization": b"kotlinx/serialization/json/Json",
+              "章节列表选择器": b"a.site-manga-thumbnail__link",
+              "阅读器选择器": b"img.site-reader__image",
+              "图片地址属性": b"data-page-image-url",
+              "连载状态关键字": "連載中".encode(),
+          }
+          bad = []
+          for label, needle in markers.items():
+              ok = needle in blob
+              print(("  ✅ " if ok else "  ❌ ") + label)
+              if not ok:
+                  bad.append(label)
+          if bad:
+              sys.exit("R8 把关键串干掉了: " + ", ".join(bad))
+          PY
+
       - name: Build store bundle
         run: |
           APK=$(find "upstream/$MODULE_DIR/build/outputs/apk/release" -name '*.apk' | head -1)
