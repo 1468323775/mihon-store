@@ -41,18 +41,35 @@ def normalize_content_warning(raw):
     return name if name in set(CONTENT_WARNING_NAMES.values()) else "SAFE"
 
 
-def build_extension(info_path: Path, artifact_dir: Path, out: Path, base: str) -> dict:
+def find_file(base: Path, pattern: str, prefer: str | None = None) -> Path | None:
+    """在产物目录里递归找文件（CI 的 artifact 会保留 build/outputs/... 这种层级）"""
+    hits = sorted(p for p in base.rglob(pattern) if p.is_file())
+    if prefer:
+        for hit in hits:
+            if hit.name == prefer:
+                return hit
+    return hits[0] if hits else None
+
+
+def build_extension(info_path: Path, artifact_root: Path, out: Path, base: str) -> dict:
     info = json.loads(info_path.read_text(encoding="utf-8"))
     pkg = pick(info, "packageName", "package_name")
     if not pkg:
         sys.exit(f"{info_path} 里没有 packageName")
 
-    apk = next(iter(sorted(artifact_dir.glob("*.apk"))), None)
-    icon = next(iter(sorted(artifact_dir.glob("*.png"))), None)
+    # CI 的 artifact 会保留 build/outputs/apk/release、res/mipmap-xhdpi 这种层级，所以要递归找
+    module = str(pick(info, "module", default="")).split(".")[-1]
+    apks = sorted(p for p in artifact_root.rglob("*.apk") if p.is_file())
+    # 只认 release 包（万一同目录混进 debug 包，别挑错）
+    pool = [p for p in apks if "release" in p.as_posix() and "debug" not in p.name.lower()]
+    pool = pool or [p for p in apks if "debug" not in p.name.lower()] or apks
+    preferred = [p for p in pool if module and module in p.name]
+    apk = (preferred or pool)[0] if (preferred or pool) else None
+    icon = find_file(artifact_root, "*.png", prefer="ic_launcher.png")
     if apk is None:
-        sys.exit(f"{artifact_dir} 里没有 APK")
+        sys.exit(f"{artifact_root} 下（递归）找不到 APK：{[str(p) for p in artifact_root.rglob('*')]}")
     if icon is None:
-        sys.exit(f"{artifact_dir} 里没有图标")
+        sys.exit(f"{artifact_root} 下（递归）找不到图标：{[str(p) for p in artifact_root.rglob('*')]}")
 
     (out / "apk").mkdir(parents=True, exist_ok=True)
     (out / "icon").mkdir(parents=True, exist_ok=True)
@@ -111,7 +128,12 @@ def main():
 
     out = Path(args.out)
     base = args.base_url.rstrip("/")
-    extensions = [build_extension(i, i.parent, out, base) for i in infos]
+    extensions = []
+    for info in infos:
+        # artifact 根目录 = artifacts/<artifact 名>/（source-info 可能埋在里面几层）
+        rel = info.relative_to(artifacts)
+        artifact_root = artifacts / rel.parts[0] if len(rel.parts) > 1 else info.parent
+        extensions.append(build_extension(info, artifact_root, out, base))
     extensions.sort(key=lambda e: e["packageName"])
 
     index = {
