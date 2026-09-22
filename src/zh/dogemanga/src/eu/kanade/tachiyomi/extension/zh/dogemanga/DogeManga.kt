@@ -75,8 +75,7 @@ abstract class DogeManga : KeiSource() {
         }
     }
 
-    private fun parseMangaList(document: Document): List<SManga> =
-        document.select("div.site-card").mapNotNull { card ->
+    private fun parseMangaList(document: Document): List<SManga> = document.select("div.site-card").mapNotNull { card ->
             val link = card.selectFirst("a.site-card__manga-title") ?: return@mapNotNull null
             SManga.create().apply {
                 setUrlWithoutDomain(link.absUrl("href"))

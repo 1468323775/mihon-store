@@ -44,10 +44,15 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
 
-      - name: Assemble debug APK
+      - name: Apply ktlint formatting (self-healing)
         working-directory: upstream
         run: |
           chmod +x gradlew
+          ./gradlew :src:zh:dogemanga:spotlessApply --no-daemon
+
+      - name: Assemble debug APK
+        working-directory: upstream
+        run: |
           ./gradlew :src:zh:dogemanga:assembleDebug --no-daemon --stacktrace
 
       - name: Show outputs
