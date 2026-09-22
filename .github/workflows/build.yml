@@ -114,7 +114,7 @@ jobs:
       - name: Build store bundle
         run: |
           APK=$(find "upstream/$MODULE_DIR/build/outputs/apk/release" -name '*.apk' | head -1)
-          python3 tools/build_store.py \
+          python3 ours/tools/build_store.py \
             --info "upstream/$MODULE_DIR/build/keiyoushi-source-info.json" \
             --apk "$APK" \
             --icon "upstream/$MODULE_DIR/res/mipmap-xhdpi/ic_launcher.png" \

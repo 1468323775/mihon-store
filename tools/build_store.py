@@ -34,6 +34,27 @@ def need(info: dict, *keys, what=""):
     return value
 
 
+# keiyoushi-source-info.json 里 contentWarning 是数字（proto 枚举），
+# 而 Mihon 的 JSON 解码要的是枚举序列化名。
+CONTENT_WARNING_NAMES = {
+    0: "UNSPECIFIED",
+    1: "SAFE",
+    2: "MIXED",
+    3: "NSFW",
+}
+
+
+def normalize_content_warning(raw) -> str:
+    if isinstance(raw, bool):
+        return "SAFE"
+    if isinstance(raw, (int, float)):
+        return CONTENT_WARNING_NAMES.get(int(raw), "SAFE")
+    name = str(raw).upper().removeprefix("CONTENT_WARNING_").strip()
+    if name.isdigit():
+        return CONTENT_WARNING_NAMES.get(int(name), "SAFE")
+    return name if name in set(CONTENT_WARNING_NAMES.values()) else "SAFE"
+
+
 def build(args) -> dict:
     out = Path(args.out)
     (out / "apk").mkdir(parents=True, exist_ok=True)
@@ -65,9 +86,7 @@ def build(args) -> dict:
         sources = [{"id": 0, "name": pick(info, "name", default=pkg), "language": "zh",
                     "homeUrl": "", "mirrorUrls": []}]
 
-    content_warning = pick(info, "contentWarning", default="SAFE")
-    # 插件里枚举的序列化名就是常量名（SAFE/MIXED/NSFW），protobuf 风格名也接受
-    content_warning = str(content_warning).upper().replace("CONTENT_WARNING_", "")
+    content_warning = normalize_content_warning(pick(info, "contentWarning", default="SAFE"))
 
     base = args.base_url.rstrip("/")
     extension = {
