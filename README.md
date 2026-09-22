@@ -16,11 +16,17 @@ keiyoushi 上游 31522 个文件、2755 个 Kotlin 源，Gradle 编译需要 2~4
 
 | 用途 | 规则 |
 | --- | --- |
-| 搜索 | `GET /?q=关键词`（无分页，最多 24 条） |
-| 热门 | `GET /`（熱門排行） |
-| 漫画详情 | `GET /m/<mangaId>` |
-| 章节 | `GET /p/<chapterId>`，网页里的 `a.site-manga-thumbnail__link` |
+| 搜索 | `GET /?q=关键词`（HTML，首屏 24 条） |
+| 热门 | `GET /`（熱門排行，首屏 24 条） |
+| 最新连载 | `GET /?s=1`（最新連載，独立列表，不是热门的复制品） |
+| **翻页（关键）** | 站点自己的「加载更多」接口 `GET /_search?...`，返回 JSON `{manga_cards:[HTML片段...], next:"<下一页URL>"}` |
+| 热门/最新翻页 | `/_search?p=<令牌>`；令牌由上一页的 JSON `next` 给出，**必须按顺序一页页翻**（跳页拿不到令牌） |
+| 搜索翻页 | `/_search?o=<偏移量>&q=<关键词>`，纯偏移，可任意跳页 |
+| 令牌藏法 | 首页/搜索页把 `next` 放在 `<script>` 里的 `atob(base64(JSON))`，要先解码 |
+| 漫画详情 | `GET /m/<mangaId>`（`span.site-card__manga-title` / `img.site-manga__cover-image` / `h4.text-muted a` / `small.text-muted` 里的連載狀態） |
+| 章节 | `GET /p/<chapterId>`，网页里的 `a.site-manga-thumbnail__link`，章节名取 `img.site-manga-thumbnail__image[alt]` |
 | 图片 | 章节页 `img.site-reader__image[data-page-image-url]`，整章图片都在 HTML 里 |
+| 连载状态 | 卡片/详情页 `small.text-muted`：`連載狀態：連載中` → 连载中，`完结` → 已完结 |
 | 防盗链 | 图片裸抓 403（Cloudflare），必须带 `Referer: https://dogemanga.com/`；KeiSource 基类已自动为所有请求带上该头 |
 
 ## 编译与安装
