@@ -1,6 +1,13 @@
-# 发布 Mihon 插件商店 —— 一键开关
+# 发布 Mihon 插件商店 —— 已上线
 
-当前状态：**构建 + 商店索引已跑通并验证，只差「发布」这一步（等选托管位置）**。
+当前状态：**已上线（2026-09-22）**。仓库 `1468323775/mihon-store` 已设为公开，它既是源码仓库也是商店本体：
+CI 编完 release 包后把 `index.json` + `apk/` + `icon/` 提交回本仓库 main，Mihon 从 raw 地址拉取。
+
+**商店地址（填进 Mihon）：**
+
+```
+https://raw.githubusercontent.com/1468323775/mihon-store/main/index.json
+```
 
 ## 商店是什么
 
@@ -11,12 +18,13 @@
 - 扩展列表：包名、`versionCode`、`versionName`、扩展库版本、内容警告、下载地址、图标地址
 
 Mihon 里「设置 → 浏览 → 插件商店 → 添加插件商店」填这个 URL 就算授权：**该签名Key签出来的扩展一律自动信任**，不用再手点「信任」，而且以后有新版会提示更新。
+字段结构对齐 Mihon 源码 `data/src/main/java/mihon/data/extension/model/NetworkExtensionStore.kt`（2026-09-22 逐字段核对过）。
 
-## 产物构成（由 CI 生成，`store-bundle` artifact）
+## 产物构成（CI 生成后提交到本仓库根目录）
 
 ```
-index.json                                  商店索引（新式 JSON 格式）
-apk/tachiyomi-zh.dogemanga-v1.6.1.apk       扩展包（release 签名）
+index.json                                          商店索引（新式 JSON 格式）
+apk/tachiyomi-zh.dogemanga-v<版本>.apk              扩展包（release 签名，只保留当前版本）
 icon/eu.kanade.tachiyomi.extension.zh.dogemanga.png
 ```
 
@@ -25,61 +33,34 @@ icon/eu.kanade.tachiyomi.extension.zh.dogemanga.png
 - 证书 SHA-256：`e93c713252287646464de377f1e6b65803724e8d0991aa19c12fe45c72e02697`
 - keystore：本地 `/home/li/.hermes/keys/mihon-store/signingkey.jks`（PKCS12，别名 `mihonstore`，密码在同目录 `password.txt`）
 - GitHub Secrets：`SIGNING_KEY`(base64) / `ALIAS` / `KEY_STORE_PASSWORD` / `KEY_PASSWORD`
-- **keystore 丢了 = 这条线断**（用户已装的扩展无法再更新，只能换包名重来）。备份它。
-
-## 放开发布（两种托管方式，选一个）
-
-### A. 本仓库直接公开（最省事）
-
-```bash
-# 1) 改名成工作流里已经写好的地址
-gh repo rename mihon-store --repo 1468323775/dogemanga-mihon-ext --yes
-# 2) 设为公开（公开仓库 Actions 分钟数还免费）
-gh repo edit 1468323775/mihon-store --visibility public --accept-visibility-change-consequences
-# 3) 打开发布开关
-gh variable set STORE_PUBLISH --repo 1468323775/mihon-store --body true
-# 4) 重跑构建，publish job 会把 index.json/apk/icon 提交进 main
-gh workflow run build.yml --repo 1468323775/mihon-store
-```
-
-商店地址：`https://raw.githubusercontent.com/1468323775/mihon-store/main/index.json`
-
-### B. 源码留私有 + 成品进另一个公开仓库
-
-1. 建公开仓库 `1468323775/mihon-store`（空仓库即可）
-2. 生成部署密钥并把公钥加到公开仓库（Settings → Deploy keys，勾选 write）：
-   ```bash
-   ssh-keygen -t ed25519 -C mihon-store-publish -f ~/.hermes/keys/mihon-store/publish_key -N ''
-   gh repo deploy-key add ~/.hermes/keys/mihon-store/publish_key.pub --repo 1468323775/mihon-store --allow-write
-   gh secret set DEPLOY_KEY --repo 1468323775/dogemanga-mihon-ext < ~/.hermes/keys/mihon-store/publish_key
-   ```
-3. 把 publish job 的 `Checkout` 换成：
-   ```yaml
-   with:
-     repository: 1468323775/mihon-store
-     ssh-key: ${{ secrets.DEPLOY_KEY }}
-     persist-credentials: true
-   ```
-   并去掉 `permissions: contents: write`（用部署密钥推）
-4. 同样 `gh variable set STORE_PUBLISH ... --body true` 后重跑
-
-## 用户侧操作（一次性）
-
-1. 先卸掉之前 sideload 的 debug 版（签名不同，不卸装不上）
-2. Mihon → 设置 → 浏览 → 插件商店 → 添加插件商店 → 填商店索引 URL
-3. 浏览 → 扩展 → 找到「Doge Manga」→ 安装 → 不用点信任
-4. 浏览 → 图源 → 出现「漫画狗」
+- **keystore 丢了 = 这条线断**（已装的扩展无法再更新，只能换包名重来）。备份它。
 
 ## 改代码后怎么更新
 
-直接 push 本仓库；workflow 重新编 release（签名不变）→ publish job 更新 `index.json` 与 `apk/`。
-`versionCode` 来自 `src/zh/dogemanga/build.gradle.kts` 的 `versionCode`（实际值 = `libVersion*100000 + versionCode`），
-要发新版就把它 +1，否则 Mihon 认不出更新。
+1. 改 `src/zh/<name>/…`，并把 `build.gradle.kts` 的 `versionCode` +1（实际值 = `libVersion*100000 + versionCode`，如 libVersion 1.6 + versionCode 2 → `106002` / `1.6.2`），否则 Mihon 认不出更新
+2. `git push` 到 main → workflow 自动跑：编签名包 → 校指纹 → 校 R8 产物 → 生成商店文件 → 提交发布 → **匿名复验线上可拉**
+3. 手动重跑：`gh workflow run build.yml --repo 1468323775/mihon-store`
 
-## 验证清单（CI 已内置，人工复核也照这个来）
+发布开关是仓库变量 `STORE_PUBLISH=true`，设成别的值就只出产物不发布。
 
-- [ ] `apksigner verify --print-certs` 的 SHA-256 == index.json 的 `signingKey`
-- [ ] `index.json` 能通过 HTTPS 拉到，`apkUrl` / `iconUrl` HEAD 200
-- [ ] `contentWarning` 是枚举名（SAFE/MIXED/NSFW），`versionCode` 是数字
-- [ ] 装完在 Mihon 里能搜到「海賊王」并读到图（图片靠 KeiSource 基类自动带的 Referer 过防盗链）
-- [ ] 提交更新后 Mihon 扩展页出现新版提示，点更新能装上
+## 加新站
+
+复制 `src/zh/dogemanga` 整个模块目录改名，改 `build.gradle.kts` 里的 `name` / `source { name, lang, baseUrl }`。
+workflow 里 `MODULE_DIR` / `GRADLE_PATH` 现在是单模块硬编码，加第二个站要改成矩阵或再加一个 job。
+
+## 验证清单
+
+- [x] `apksigner verify --print-certs` 的 SHA-256 == index.json 的 `signingKey`（CI 硬闸门）
+- [x] R8 压缩没吃掉关键串（源名/baseUrl/接口/选择器/状态词 9 项，CI 硬闸门）
+- [x] `index.json` 匿名 HTTPS 可拉，`apkUrl` / `iconUrl` 匿名下载 200（CI 硬闸门 + 人工复核）
+- [x] `contentWarning` 是枚举名（SAFE/MIXED/NSFW），`versionCode` 是数字
+- [ ] **手机实测**：Mihon 加商店 → 装扩展 → 搜「海賊王」→ 读到图（图片靠 KeiSource 基类自动带的 Referer 过防盗链）
+- [ ] 手机实测：改了 `versionCode` 后扩展页出现新版提示，点更新能装上
+
+## 踩过的坑
+
+- `.gitignore` 里一句 `*.apk` 会让 `git add apk` **静默跳过**扩展包 —— 索引指向 404、CI 却全绿。
+  已改成 `*.apk` + `!apk/*.apk`，并在发布任务末尾加了「匿名拉线上文件 + 索引与仓库文件对齐」的复验闸门。
+- 加商店前 Mihon 里要先开 **显示 NSFW 扩展**（本扩展标了 `MIXED`），否则列表里看不到。
+- release 构建会被 R8 混淆类名（`La;`/`Lm;`），但 manifest 指向 `keiyoushi.source.Generated`，属正常；
+  判断包内容是否完好只能查字符串常量，不能按类名找。

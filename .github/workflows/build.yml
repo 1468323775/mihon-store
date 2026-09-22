@@ -192,6 +192,9 @@ jobs:
           mkdir -p apk icon
           cp store/apk/* apk/
           cp store/icon/* icon/
+          # 只留当前版本的包，别让仓库里堆历史 APK
+          NEW_APK=$(basename "$(ls store/apk/*.apk | head -1)")
+          find apk -maxdepth 1 -name '*.apk' ! -name "$NEW_APK" -print -delete
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add index.json apk icon
@@ -201,3 +204,55 @@ jobs:
             git commit -m "Publish store index"
             git push
           fi
+
+      # 光看「任务绿」不算数：.gitignore 吃过 apk 一次，索引指向 404 但 CI 全绿。
+      - name: Verify published store is complete and publicly reachable
+        run: |
+          echo "--- 仓库里真实跟踪的商店文件 ---"
+          git ls-files index.json apk icon
+          APK=$(git ls-files 'apk/*.apk')
+          ICON=$(git ls-files 'icon/*.png')
+          [ -n "$APK" ] || { echo "::error::apk 没进仓库（多半被 .gitignore 吃了）"; exit 1; }
+          [ -n "$ICON" ] || { echo "::error::icon 没进仓库"; exit 1; }
+
+          python3 - "$APK" "$ICON" <<'PY'
+          import json, sys, urllib.request, time
+          apk_rel, icon_rel = sys.argv[1], sys.argv[2]
+          index_url = "https://raw.githubusercontent.com/1468323775/mihon-store/main/index.json"
+
+          def get(url, tries=10, delay=20):
+              last = None
+              for i in range(tries):
+                  try:
+                      with urllib.request.urlopen(url, timeout=30) as r:
+                          return r.status, r.read()
+                  except Exception as e:  # 刚 push 完 CDN 可能还没刷出来
+                      last = e
+                      time.sleep(delay)
+              raise SystemExit(f"拉不到 {url}: {last}")
+
+          status, body = get(index_url)
+          store = json.loads(body)
+          ext = store["extensionList"]["extensions"][0]
+          apk_url = ext["resources"]["apkUrl"]
+          icon_url = ext["resources"]["iconUrl"]
+          print(f"商店索引 {status} | {store['name']} | 签名 {store['signingKey'][:16]}…")
+          print(f"扩展 {ext['name']} {ext['versionName']} ({ext['versionCode']}) {ext['contentWarning']}")
+
+          assert apk_url.endswith(apk_rel), f"索引里的 apkUrl 与仓库文件对不上: {apk_url} vs {apk_rel}"
+          assert icon_url.endswith(icon_rel), f"索引里的 iconUrl 与仓库文件对不上: {icon_url} vs {icon_rel}"
+
+          for label, url in (("apk", apk_url), ("icon", icon_url)):
+              st, data = get(url, tries=6, delay=15)
+              print(f"  匿名下载 {label}: http={st} size={len(data)}")
+              assert st == 200 and len(data) > 0, f"{label} 匿名拉不回来"
+
+          st, apk_bytes = get(apk_url, tries=3, delay=10)
+          import hashlib, zipfile, io
+          h = hashlib.sha256(apk_bytes).hexdigest()
+          print(f"  线上 apk sha256: {h}")
+          z = zipfile.ZipFile(io.BytesIO(apk_bytes))
+          names = z.namelist()
+          print(f"  包内结构: {sorted(n for n in names if n.endswith('.dex') or n == 'AndroidManifest.xml')}")
+          print("✅ 商店线上可拉、apk/icon 齐全、索引与文件对得上")
+          PY

@@ -1,4 +1,7 @@
 .gradle/
 build/
-*.apk
 *.jks
+
+# 本地构建产物不入库，但商店要发布的 apk/ 目录必须例外（否则 index.json 指向 404）
+*.apk
+!apk/*.apk
