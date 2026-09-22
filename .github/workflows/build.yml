@@ -1,16 +1,35 @@
-name: Build dogemanga extension
+name: Build extension & Mihon store
+
+# 1) 编译 dogemanga 扩展（release 签名，证书指纹 = 商店 signingKey）
+# 2) 生成 Mihon「新式商店」索引 index.json + apk/ + icon/
+# 3) 商店发布由仓库变量 STORE_PUBLISH=true 控制（默认只出产物、不发布）
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
+    paths-ignore:
+      - 'index.json'
+      - 'apk/**'
+      - 'icon/**'
 
 permissions:
   contents: read
 
+env:
+  UPSTREAM_REPO: keiyoushi/extensions-source
+  UPSTREAM_COMMIT: 42176662d3d29926371ec5a8d7e06e2b194f1df8
+  MODULE_DIR: src/zh/dogemanga
+  GRADLE_PATH: ':src:zh:dogemanga'
+  STORE_NAME: 琳的扩展仓库
+  STORE_BADGE: 琳
+  STORE_WEBSITE: https://github.com/1468323775/mihon-store
+  STORE_BASE_URL: https://raw.githubusercontent.com/1468323775/mihon-store/main
+  EXPECTED_FINGERPRINT: e93c713252287646464de377f1e6b65803724e8d0991aa19c12fe45c72e02697
+
 jobs:
   build:
-    name: Build APK
+    name: Build signed release APK
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -24,16 +43,16 @@ jobs:
       - name: Checkout keiyoushi/extensions-source (pinned)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: keiyoushi/extensions-source
-          ref: 42176662d3d29926371ec5a8d7e06e2b194f1df8
+          repository: ${{ env.UPSTREAM_REPO }}
+          ref: ${{ env.UPSTREAM_COMMIT }}
           path: upstream
           persist-credentials: false
 
       - name: Inject our source module
         run: |
-          rm -rf upstream/src/zh/dogemanga
-          cp -r ours/src/zh/dogemanga upstream/src/zh/dogemanga
-          find upstream/src/zh/dogemanga -type f | sort
+          rm -rf "upstream/$MODULE_DIR"
+          cp -r "ours/$MODULE_DIR" "upstream/$MODULE_DIR"
+          find "upstream/$MODULE_DIR" -type f | sort
 
       - name: Set up Java
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
@@ -44,23 +63,113 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
 
+      - name: Prepare signing key
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+        run: |
+          echo "$SIGNING_KEY" | base64 -d > upstream/signingkey.jks
+          ls -l upstream/signingkey.jks
+          keytool -list -v -keystore upstream/signingkey.jks -storetype pkcs12 \
+            -storepass "$KEY_STORE_PASSWORD" | grep -Ei 'alias|SHA256|valid|别名|有效期' || true
+
       - name: Apply ktlint formatting (self-healing)
         working-directory: upstream
         run: |
           chmod +x gradlew
-          ./gradlew :src:zh:dogemanga:spotlessApply --no-daemon
+          ./gradlew "$GRADLE_PATH:spotlessApply" --no-daemon
 
-      - name: Assemble debug APK
+      - name: Assemble release APK (signed)
         working-directory: upstream
+        env:
+          ALIAS: ${{ secrets.ALIAS }}
+          KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          ./gradlew :src:zh:dogemanga:assembleDebug --no-daemon --stacktrace
+          ./gradlew "$GRADLE_PATH:assembleRelease" --no-daemon --stacktrace
 
-      - name: Show outputs
-        run: find upstream/src/zh/dogemanga/build/outputs -type f | sort
+      - name: Show source info
+        run: |
+          INFO="upstream/$MODULE_DIR/build/keiyoushi-source-info.json"
+          ls -l "$INFO"
+          cat "$INFO"
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - name: Verify APK signature against store signing key
+        run: |
+          APK=$(find "upstream/$MODULE_DIR/build/outputs/apk/release" -name '*.apk' | head -1)
+          echo "APK: $APK"
+          BT=$(ls -d "$ANDROID_SDK_ROOT"/build-tools/* | sort -V | tail -1)
+          echo "build-tools: $BT"
+          "$BT/apksigner" verify --print-certs "$APK"
+          FP=$("$BT/apksigner" verify --print-certs "$APK" \
+            | grep -i 'SHA-256 digest' | head -1 | awk '{print $NF}' | tr -d ':' | tr 'A-F' 'a-f')
+          echo "APK 证书 SHA-256: $FP"
+          echo "商店 signingKey : $EXPECTED_FINGERPRINT"
+          if [ "$FP" != "$EXPECTED_FINGERPRINT" ]; then
+            echo "::error::指纹不匹配，商店装不上或信任会失败"
+            exit 1
+          fi
+          echo "✅ 签名指纹与商店 signingKey 一致"
+
+      - name: Build store bundle
+        run: |
+          APK=$(find "upstream/$MODULE_DIR/build/outputs/apk/release" -name '*.apk' | head -1)
+          python3 tools/build_store.py \
+            --info "upstream/$MODULE_DIR/build/keiyoushi-source-info.json" \
+            --apk "$APK" \
+            --icon "upstream/$MODULE_DIR/res/mipmap-xhdpi/ic_launcher.png" \
+            --out store \
+            --base-url "$STORE_BASE_URL" \
+            --name "$STORE_NAME" --badge "$STORE_BADGE" --website "$STORE_WEBSITE" \
+            --signing-key "$EXPECTED_FINGERPRINT"
+          echo "--- store 目录 ---"
+          find store -type f | sort
+          (cd store && sha256sum apk/*.apk)
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: dogemanga-debug-apk
-          path: upstream/src/zh/dogemanga/build/outputs/apk/debug/*.apk
+          name: signed-apk
+          path: upstream/${{ env.MODULE_DIR }}/build/outputs/apk/release/*.apk
           if-no-files-found: error
+
+      - name: Upload store bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: store-bundle
+          path: store/**
+          if-no-files-found: error
+
+  publish:
+    name: Publish store files
+    needs: build
+    if: ${{ vars.STORE_PUBLISH == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download store bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: store-bundle
+          path: store
+
+      - name: Commit store files
+        run: |
+          cp store/index.json ./index.json
+          mkdir -p apk icon
+          cp store/apk/* apk/
+          cp store/icon/* icon/
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.json apk icon
+          if git diff --cached --quiet; then
+            echo "商店文件无变化"
+          else
+            git commit -m "Publish store index"
+            git push
+          fi
