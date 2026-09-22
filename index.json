@@ -9,6 +9,27 @@
   "extensionList": {
     "extensions": [
       {
+        "name": "CopyManga",
+        "packageName": "eu.kanade.tachiyomi.extension.zh.copymanga",
+        "resources": {
+          "apkUrl": "https://raw.githubusercontent.com/1468323775/mihon-store/main/apk/tachiyomi-zh.copymanga-v1.6.1.apk",
+          "iconUrl": "https://raw.githubusercontent.com/1468323775/mihon-store/main/icon/eu.kanade.tachiyomi.extension.zh.copymanga.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106001,
+        "versionName": "1.6.1",
+        "contentWarning": "MIXED",
+        "sources": [
+          {
+            "id": 6696312508930833206,
+            "name": "拷贝漫画",
+            "language": "zh",
+            "homeUrl": "https://www.mangacopy.com",
+            "mirrorUrls": []
+          }
+        ]
+      },
+      {
         "name": "Doge Manga",
         "packageName": "eu.kanade.tachiyomi.extension.zh.dogemanga",
         "resources": {
