@@ -29,7 +29,28 @@ keiyoushi 上游 31522 个文件、2755 个 Kotlin 源，Gradle 编译需要 2~4
 | 连载状态 | 卡片/详情页 `small.text-muted`：`連載狀態：連載中` → 连载中，`完结` → 已完结 |
 | 防盗链 | 图片裸抓 403（Cloudflare），必须带 `Referer: https://dogemanga.com/`；KeiSource 基类已自动为所有请求带上该头 |
 
-## 编译与安装
+## 编译与发布
 
-推送到 main 或手动触发 `Build dogemanga extension` workflow，产物为 `dogemanga-debug-apk`。
-装到手机后 Mihon 会提示「Untrusted extension」，点一次 Trust 即可。
+推送到 `main` 或手动触发 `Build extension & Mihon store` workflow，CI 会：
+
+1. 拉上游 `keiyoushi/extensions-source`（钉死 commit）→ 注入本模块 → `spotlessApply` 自愈格式 → 编 **release 签名 APK**
+2. 校验 APK 证书指纹 == 商店索引里声明的 `signingKey`（不等直接红叉）
+3. 校验 R8 压缩没把关键串干掉（源名/baseUrl/接口/选择器/状态词 9 项）
+4. 生成商店文件 `index.json` + `apk/` + `icon/`，并推到本仓库根目录（由仓库变量 `STORE_PUBLISH=true` 控制）
+
+## 手机上怎么装（商店版，推荐）
+
+Mihon → **设置 → 浏览 → 扩展仓库 / Extension stores → 添加**，粘贴：
+
+```
+https://raw.githubusercontent.com/1468323775/mihon-store/main/index.json
+```
+
+之后：浏览 → 扩展 → 出现「漫画狗」→ 装 → **不用点 Trust**。以后这边一改代码，你在那一页点「更新」就升级。
+
+⚠️ 两件事：
+
+- 该扩展被标为 `MIXED`（站点挂成人广告）→ Mihon 里要先开 **设置 → 扩展/高级 → 显示 NSFW 扩展**，否则列表里看不到它
+- 手装的旧包跟商店包签名不同，**先卸载旧包**再装商店版，否则报「应用未安装」
+
+不想用商店也行：`apk/` 目录里就是要的 APK，直接下载 sideload，装完 Mihon 会提示 `Untrusted extension`，点一次 Trust。
